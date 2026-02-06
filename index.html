@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Celestial Clock Final</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        /* --- テーマ定義 --- */
+        :root {
+            /* デフォルト (Night) */
+            --bg-color: #020406;
+            /* より深い黒 */
+            --text-main: #ffffff;
+            --text-sub: #64748b;
+            --accent-color: #00f2ff;
+            --beam-blend: screen;
+            --guide-opacity: 0.2;
+            --cloud-color: #ffffff;
+            --cloud-opacity: 0.1;
+            --star-opacity: 1;
+            /* 星の明るさ */
+            --text-glow: 0 0 5px rgba(0, 242, 255, 0.8), 0 0 15px rgba(0, 242, 255, 0.4);
+            transition: all 2s ease;
+        }
+
+        /* 夜明け */
+        body.theme-dawn {
+            --bg-color: #1a0b2e;
+            --text-main: #e9d5ff;
+            --text-sub: #a78bfa;
+            --accent-color: #f0abfc;
+            --beam-blend: screen;
+            --guide-opacity: 0.3;
+            --cloud-color: #e9d5ff;
+            --star-opacity: 0.5;
+            --text-glow: 0 0 5px rgba(240, 171, 252, 0.8), 0 0 15px rgba(240, 171, 252, 0.4);
+        }
+
+        /* 昼 */
+        body.theme-day {
+            --bg-color: #38bdf8;
+            /* 空色 */
+            --text-main: #064e3b;
+            --text-sub: #15803d;
+            --accent-color: #047857;
+            --beam-blend: multiply;
+            --guide-opacity: 0.4;
+            --cloud-color: #ffffff;
+            --star-opacity: 0;
+            --text-glow: 0 0 0px transparent;
+        }
+
+        /* 夕暮れ */
+        body.theme-dusk {
+            --bg-color: #c2410c;
+            --text-main: #020617;
+            --text-sub: #431407;
+            --accent-color: #7c2d12;
+            --beam-blend: normal;
+            --guide-opacity: 0.3;
+            --cloud-color: #fed7aa;
+            --star-opacity: 0.3;
+            --text-glow: 0 0 2px rgba(255, 255, 255, 0.5);
+        }
+
+        /* 雨 */
+        body.theme-rain {
+            --bg-color: #0f172a;
+            --text-main: #e2e8f0;
+            --text-sub: #94a3b8;
+            --accent-color: #38bdf8;
+            --beam-blend: screen;
+            --guide-opacity: 0.3;
+            --cloud-color: #cbd5e1;
+            --star-opacity: 0.2;
+            --text-glow: 0 0 8px rgba(56, 189, 248, 0.6);
+        }
+
+        /* 雪 */
+        body.theme-snow {
+            --bg-color: #cadbdc;
+            --text-main: #0c4a6e;
+            --text-sub: #0284c7;
+            --accent-color: #0ea5e9;
+            --beam-blend: multiply;
+            --guide-opacity: 0.4;
+            --cloud-color: #ffffff;
+            --star-opacity: 0.1;
+            --text-glow: 0 0 0px transparent;
+        }
+
+        /* 曇り */
+        body.theme-cloudy {
+            --bg-color: #27272a;
+            --text-main: #f4f4f5;
+            --text-sub: #a1a1aa;
+            --accent-color: #d4d4d8;
+            --beam-blend: overlay;
+            --guide-opacity: 0.3;
+            --cloud-color: #d4d4d8;
+            --star-opacity: 0.1;
+            --text-glow: 0 0 5px rgba(255, 255, 255, 0.3);
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            margin: 0;
+            background: var(--bg-color);
+            font-family: 'Roboto Mono', monospace;
+            overflow: hidden;
+            color: var(--text-main);
+            transition: background 2s ease;
+            perspective: 1000px;
+            /* 3D効果の基準 */
+        }
+
+        /* 背景レイヤー (星空) */
+        #starCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: var(--star-opacity);
+            transition: opacity 2s ease;
+            pointer-events: none;
+        }
+
+        /* メインの時計SVG */
+        svg {
+            width: 100%;
+            height: 100%;
+            max-width: 95vmin;
+            max-height: 95vmin;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            transform-style: preserve-3d;
+            pointer-events: none;
+            z-index: 10;
+            will-change: transform;
+        }
+
+        /* --- アニメーション定義 --- */
+        @keyframes pulseGuide {
+
+            0%,
+            100% {
+                opacity: var(--guide-opacity);
+            }
+
+            50% {
+                opacity: calc(var(--guide-opacity) * 1.5);
+            }
+        }
+
+        @keyframes pulseBeam {
+
+            0%,
+            100% {
+                opacity: 0.5;
+                filter: drop-shadow(0 0 5px var(--accent-color));
+            }
+
+            50% {
+                opacity: 0.7;
+                filter: drop-shadow(0 0 15px var(--accent-color));
+            }
+        }
+
+        /* 雨・雪アニメーション */
+        .rain-drop {
+            stroke: var(--accent-color);
+            stroke-width: 2;
+            stroke-linecap: round;
+            opacity: 0.7;
+            animation: rainFall 0.8s linear infinite;
+        }
+
+        @keyframes rainFall {
+            0% {
+                transform: translateY(-100px);
+                opacity: 0;
+            }
+
+            10% {
+                opacity: 1;
+            }
+
+            90% {
+                opacity: 1;
+            }
+
+            100% {
+                transform: translateY(800px);
+                opacity: 0;
+            }
+        }
+
+        .snow-flake {
+            fill: #ffffff;
+            opacity: 0.8;
+            animation: snowFall 4s linear infinite;
+        }
+
+        @keyframes snowFall {
+            0% {
+                transform: translateY(-100px) translateX(0);
+                opacity: 0;
+            }
+
+            20% {
+                opacity: 1;
+            }
+
+            50% {
+                transform: translateY(350px) translateX(20px);
+            }
+
+            80% {
+                opacity: 1;
+            }
+
+            100% {
+                transform: translateY(800px) translateX(-20px);
+                opacity: 0;
+            }
+        }
+
+        /* 文字・目盛り */
+        .tick-label {
+            fill: var(--text-sub);
+            font-size: 14px;
+            font-weight: 500;
+            transition: fill 1.5s;
+        }
+
+        .active-tick {
+            fill: var(--text-main);
+            font-size: 18px;
+            font-weight: 700;
+            text-shadow: var(--text-glow);
+            transition: all 0.2s;
+        }
+
+        .arc-range {
+            fill: none;
+            stroke-opacity: 0.3;
+            stroke-linecap: round;
+            transition: stroke 1.5s;
+        }
+
+        .celestial-label {
+            font-size: 10px;
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: central;
+            letter-spacing: 0.05em;
+            transition: transform 0.3s;
+            text-shadow: -1px -1px 0 var(--bg-color), 1px -1px 0 var(--bg-color), -1px 1px 0 var(--bg-color), 1px 1px 0 var(--bg-color);
+        }
+
+        .sun-text {
+            fill: #ff4444;
+        }
+
+        body.theme-day .sun-text,
+        body.theme-snow .sun-text {
+            fill: #ef4444;
+            text-shadow: 0 0 2px #fff, 0 0 4px #fff;
+        }
+
+        .moon-text {
+            fill: #fde047;
+        }
+
+        body.theme-day .moon-text,
+        body.theme-snow .moon-text {
+            fill: #d97706;
+            text-shadow: 0 0 2px #fff, 0 0 4px #fff;
+        }
+
+        .sun-shape {
+            fill: #ff4444;
+            filter: drop-shadow(0 0 8px rgba(255, 68, 68, 0.8));
+        }
+
+        .moon-shape {
+            fill: #fde047;
+            filter: drop-shadow(0 0 8px rgba(253, 224, 71, 0.8));
+        }
+
+        .sky-guide {
+            fill: none;
+            stroke: var(--accent-color);
+            stroke-width: 1;
+            stroke-dasharray: 4 4;
+            opacity: var(--guide-opacity);
+            transition: stroke 1.5s, opacity 1.5s;
+            animation: pulseGuide 4s ease-in-out infinite;
+        }
+
+        .sky-text {
+            fill: var(--accent-color);
+            font-size: 10px;
+            opacity: 0.8;
+            text-anchor: middle;
+            transition: fill 1.5s;
+            font-weight: bold;
+        }
+
+        .indicator-beam {
+            fill: url(#beamGradient);
+            opacity: 0.6;
+            mix-blend-mode: var(--beam-blend);
+            transition: all 1.5s;
+            animation: pulseBeam 3s ease-in-out infinite;
+        }
+
+        /* 雲レイヤー */
+        #cloudLayer {
+            pointer-events: none;
+            mix-blend-mode: screen;
+            transition: opacity 2s;
+        }
+
+        body.theme-day #cloudLayer,
+        body.theme-snow #cloudLayer {
+            mix-blend-mode: normal;
+        }
+
+        .cloud-blob {
+            fill: var(--cloud-color);
+            filter: blur(25px);
+            opacity: var(--cloud-opacity);
+            transition: fill 2s, opacity 2s;
+            animation: cloudFloat 120s infinite linear;
+        }
+
+        @keyframes cloudFloat {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* UIパネル */
+        .ctrl-btn,
+        .weather-box {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--text-sub);
+            color: var(--text-main);
+            border-radius: 8px;
+            transition: 0.3s;
+            font-family: inherit;
+            backdrop-filter: blur(10px);
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            user-select: none;
+            pointer-events: auto;
+        }
+
+        .ui-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 100;
+        }
+
+        .weather-box {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 110px;
+            padding: 8px 12px;
+            font-size: 11px;
+        }
+
+        .weather-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .weather-icon {
+            font-size: 18px;
+        }
+
+        .weather-val {
+            font-size: 14px;
+        }
+
+        .weather-label {
+            font-size: 9px;
+            opacity: 0.7;
+        }
+
+        .ctrl-btn {
+            cursor: pointer;
+            border-radius: 20px;
+            text-align: left;
+            width: fit-content;
+            padding: 8px 16px;
+            font-size: 11px;
+        }
+
+        .ctrl-btn:hover {
+            border-color: var(--accent-color);
+            background: var(--accent-color);
+            color: var(--bg-color);
+            box-shadow: 0 0 15px var(--accent-color);
+        }
+
+        #geo-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+        }
+
+        @media (max-width: 600px) {
+            .ui-panel {
+                bottom: 15px;
+                left: 15px;
+            }
+
+            #geo-btn {
+                bottom: 15px;
+                right: 15px;
+            }
+
+            .ctrl-btn {
+                padding: 6px 12px;
+                font-size: 10px;
+            }
+
+            .ui-panel,
+            #geo-btn {
+                opacity: 0.9;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- 背景の星空キャンバス -->
+    <canvas id="starCanvas"></canvas>
+
+    <!-- メインSVG -->
+    <svg id="mainSvg" viewBox="0 0 750 750" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <radialGradient id="beamGradient" cx="0" cy="0" r="360" gradientUnits="userSpaceOnUse">
+                <stop offset="0%"
+                    style="stop-color: var(--accent-color); stop-opacity: 0.1; transition: stop-color 1.5s;" />
+                <stop offset="30%"
+                    style="stop-color: var(--accent-color); stop-opacity: 0.4; transition: stop-color 1.5s;" />
+                <stop offset="100%"
+                    style="stop-color: var(--accent-color); stop-opacity: 0; transition: stop-color 1.5s;" />
+            </radialGradient>
+        </defs>
+
+        <g transform="translate(375,375)">
+            <!-- インジケータ (0度から下へ7.5度) -->
+            <path d="M 0 0 L 360 0 A 360 360 0 0 1 356.9 47 Z" class="indicator-beam" />
+
+            <!-- 雲レイヤー -->
+            <g id="cloudLayer"></g>
+
+            <!-- 雨・雪レイヤー -->
+            <g id="precipLayer"></g>
+
+            <!-- 時計盤 -->
+            <g id="clockLayer">
+                <g id="plateHour">
+                    <path id="hourArc" class="arc-range" style="stroke: var(--accent-color); transition: stroke 1.5s;"
+                        stroke-width="4" />
+                    <g id="hourNumbers"></g>
+                </g>
+                <g id="plateMin">
+                    <path id="minArc" class="arc-range" style="stroke: var(--text-sub); transition: stroke 1.5s;"
+                        stroke-width="3" />
+                    <g id="minNumbers"></g>
+                </g>
+                <g id="plateSec">
+                    <path id="secArc" class="arc-range" style="stroke: var(--text-main); transition: stroke 1.5s;"
+                        stroke-width="2" />
+                    <g id="secNumbers"></g>
+                </g>
+            </g>
+
+            <!-- 天球ガイド -->
+            <g id="skyGuideLayer">
+                <line x1="0" y1="-300" x2="0" y2="-340" class="sky-guide" />
+                <text x="0" y="-350" class="sky-text">ZENITH</text>
+                <line x1="-340" y1="0" x2="-300" y2="0" class="sky-guide" />
+                <text x="-350" y="4" class="sky-text" style="text-anchor: end;">EAST</text>
+                <text x="350" y="4" class="sky-text" style="text-anchor: start;">WEST</text>
+                <text x="0" y="360" class="sky-text">NADIR</text>
+                <circle r="285" class="sky-guide" stroke-dasharray="2 4" />
+            </g>
+
+            <!-- 天体マーカー -->
+            <g id="celestialLayer">
+                <g id="sunMarker">
+                    <circle cy="-285" r="8" class="sun-shape" />
+                    <text id="sunAltLabel" y="-315" class="celestial-label sun-text">Alt +00.00° / Az 000.00°</text>
+                </g>
+                <g id="moonMarker">
+                    <circle cy="-285" r="8" class="moon-shape" />
+                    <text id="moonAltLabel" y="-315" class="celestial-label moon-text">Alt +00.00° / Az 000.00°</text>
+                </g>
+            </g>
+
+            <circle r="4" style="fill: var(--accent-color); transition: fill 1.5s;" />
+        </g>
+    </svg>
+
+    <div class="ui-panel">
+        <div class="weather-box" id="weatherWidget">
+            <div class="weather-row">
+                <span id="wx-icon" class="weather-icon">--</span>
+                <span id="wx-temp" class="weather-val">--°C</span>
+            </div>
+            <div class="weather-row">
+                <span class="weather-label">CLOUD COVER</span>
+                <span id="wx-cloud" class="weather-label">--%</span>
+            </div>
+        </div>
+    </div>
+
+    <button id="geo-btn" class="ctrl-btn">SYNC GPS</button>
+
+    <script>
+        let currentLat = 35.6895;
+        let currentLon = 139.6917;
+        let currentWeatherCode = 0;
+
+        const rHour = 125, rMin = 195, rSec = 265;
+        const sunMarker = document.getElementById('sunMarker');
+        const moonMarker = document.getElementById('moonMarker');
+        const sunAltLabel = document.getElementById('sunAltLabel');
+        const moonAltLabel = document.getElementById('moonAltLabel');
+        const bodyEl = document.body;
+        const weatherWidget = document.getElementById('weatherWidget');
+        const cloudLayer = document.getElementById('cloudLayer');
+        const precipLayer = document.getElementById('precipLayer');
+        const mainSvg = document.getElementById('mainSvg');
+
+        // --- Star Field Logic ---
+        const starCanvas = document.getElementById('starCanvas');
+        const starCtx = starCanvas.getContext('2d');
+        let stars = [];
+
+        function initStars() {
+            const w = starCanvas.width = window.innerWidth;
+            const h = starCanvas.height = window.innerHeight;
+            stars = [];
+            for (let i = 0; i < 150; i++) {
+                stars.push({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    size: Math.random() * 1.5,
+                    alpha: Math.random(),
+                    speed: Math.random() * 0.02
+                });
+            }
+        }
+
+        function drawStars() {
+            starCtx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+            starCtx.fillStyle = "#ffffff";
+
+            stars.forEach(s => {
+                s.alpha += s.speed;
+                if (s.alpha > 1 || s.alpha < 0.2) s.speed *= -1;
+                starCtx.globalAlpha = s.alpha;
+                starCtx.beginPath();
+                starCtx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                starCtx.fill();
+            });
+            requestAnimationFrame(drawStars);
+        }
+
+        window.addEventListener('resize', initStars);
+        initStars();
+        drawStars();
+
+        // --- Parallax Effect ---
+        document.addEventListener('mousemove', (e) => {
+            const x = (e.clientX / window.innerWidth - 0.5) * 2;
+            const y = (e.clientY / window.innerHeight - 0.5) * 2;
+
+            const tiltX = -y * 10;
+            const tiltY = x * 10;
+
+            mainSvg.style.transform = `translate(-50%, -50%) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            const touch = e.touches[0];
+            const x = (touch.clientX / window.innerWidth - 0.5) * 2;
+            const y = (touch.clientY / window.innerHeight - 0.5) * 2;
+            const tiltX = -y * 10;
+            const tiltY = x * 10;
+            mainSvg.style.transform = `translate(-50%, -50%) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
+        });
+
+
+        // --- Weather API ---
+        async function fetchWeather() {
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${currentLat}&longitude=${currentLon}&current=temperature_2m,weather_code,cloud_cover&timezone=auto`;
+                weatherWidget.style.opacity = "0.5";
+                const res = await fetch(url);
+                const data = await res.json();
+                weatherWidget.style.opacity = "1";
+
+                if (data.current) {
+                    currentWeatherCode = data.current.weather_code;
+                    updateWeatherUI(data.current);
+
+                    updateTheme(new Date(), SunCalc.getTimes(new Date(), currentLat, currentLon));
+                }
+            } catch (e) {
+                console.error("Weather fetch failed", e);
+                document.getElementById('wx-icon').textContent = "ERR";
+            }
+        }
+
+        function getWeatherIcon(code) {
+            if (code === 0) return "☀";
+            if (code >= 1 && code <= 3) return "☁";
+            if (code >= 45 && code <= 48) return "🌫";
+            if (code >= 51 && code <= 67) return "🌧";
+            if (code >= 71 && code <= 77) return "❄";
+            if (code >= 80 && code <= 82) return "🌦";
+            if (code >= 95) return "⚡";
+            return "UNKNOWN";
+        }
+
+        function updateWeatherUI(current) {
+            document.getElementById('wx-temp').textContent = `${current.temperature_2m}°C`;
+            document.getElementById('wx-cloud').textContent = `${current.cloud_cover}%`;
+            document.getElementById('wx-icon').textContent = getWeatherIcon(current.weather_code);
+            renderClouds(current.cloud_cover);
+            renderPrecipitationByCode(current.weather_code);
+        }
+
+        function renderClouds(percent) {
+            cloudLayer.innerHTML = '';
+            const cloudCount = Math.floor(percent / 10);
+            if (cloudCount === 0) return;
+
+            for (let i = 0; i < cloudCount; i++) {
+                const r = 50 + Math.random() * 100;
+                const angle = Math.random() * 360;
+                const dist = Math.random() * 300;
+                const x = Math.cos(angle * Math.PI / 180) * dist;
+                const y = Math.sin(angle * Math.PI / 180) * dist;
+
+                const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                circle.setAttribute("cx", x);
+                circle.setAttribute("cy", y);
+                circle.setAttribute("r", r);
+                circle.setAttribute("class", "cloud-blob");
+                circle.style.animationDuration = `${60 + Math.random() * 60}s`;
+                circle.style.animationDirection = Math.random() > 0.5 ? 'normal' : 'reverse';
+                cloudLayer.appendChild(circle);
+            }
+            const opacity = 0.1 + (percent / 100) * 0.4;
+            bodyEl.style.setProperty('--cloud-opacity', opacity);
+        }
+
+        function renderPrecipitationByCode(code) {
+            let type = 'none';
+            if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) type = 'rain';
+            else if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) type = 'snow';
+            renderPrecipitationByType(type);
+        }
+
+        function renderPrecipitationByType(type) {
+            precipLayer.innerHTML = '';
+            if (type === 'none') return;
+
+            const count = (type === 'rain') ? 60 : 40;
+
+            for (let i = 0; i < count; i++) {
+                const x = (Math.random() - 0.5) * 700;
+
+                if (type === 'rain') {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    const len = 10 + Math.random() * 30;
+                    line.setAttribute("x1", x);
+                    line.setAttribute("y1", -400);
+                    line.setAttribute("x2", x);
+                    line.setAttribute("y2", -400 + len);
+                    line.setAttribute("class", "rain-drop");
+                    line.style.animationDuration = `${0.5 + Math.random() * 0.5}s`;
+                    line.style.animationDelay = `${Math.random() * 2}s`;
+                    precipLayer.appendChild(line);
+                } else {
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", x);
+                    circle.setAttribute("cy", -400);
+                    circle.setAttribute("r", 2 + Math.random() * 3);
+                    circle.setAttribute("class", "snow-flake");
+                    circle.style.animationDuration = `${3 + Math.random() * 5}s`;
+                    circle.style.animationDelay = `${Math.random() * 5}s`;
+                    precipLayer.appendChild(circle);
+                }
+            }
+        }
+
+        // --- Clock Logic ---
+        function describeArc(radius, widthAngle) {
+            const half = widthAngle / 2;
+            const start = polarToCartesian(radius, half);
+            const end = polarToCartesian(radius, -half);
+            return ["M", start.x, start.y, "A", radius, radius, 0, 0, 0, end.x, end.y].join(" ");
+        }
+
+        function polarToCartesian(radius, angleInDegrees) {
+            const radians = (angleInDegrees - 90) * Math.PI / 180.0;
+            return { x: radius * Math.cos(radians), y: radius * Math.sin(radians) };
+        }
+
+        function populate(id, count, radius) {
+            const container = document.getElementById(id);
+            let html = '';
+            for (let i = 0; i < count; i++) {
+                const angle = -i * (360 / count);
+                const label = i.toString().padStart(2, '0');
+                html += `<text id="${id}-${i}" class="tick-label" 
+                         transform="rotate(${angle}) translate(0,${-radius}) rotate(-90)" 
+                         text-anchor="middle" dominant-baseline="central">${label}</text>`;
+            }
+            container.innerHTML = html;
+        }
+
+        populate('hourNumbers', 24, rHour);
+        populate('minNumbers', 60, rMin);
+        populate('secNumbers', 60, rSec);
+
+        document.getElementById('hourArc').setAttribute("d", describeArc(rHour, 360 / 24));
+        document.getElementById('minArc').setAttribute("d", describeArc(rMin, 360 / 60));
+        document.getElementById('secArc').setAttribute("d", describeArc(rSec, 360 / 60));
+
+        function formatAlt(deg) {
+            const val = deg.toFixed(2);
+            const sign = deg >= 0 ? '+' : '';
+            return sign + val + "°";
+        }
+        function formatAz(rad) {
+            const deg = (rad * 180 / Math.PI) + 180;
+            const normDeg = (deg + 360) % 360;
+            return normDeg.toFixed(2) + "°";
+        }
+
+        function getVisualAngle(altitudeRad, azimuthRad) {
+            const toDeg = rad => rad * (180 / Math.PI);
+            const altDeg = toDeg(altitudeRad);
+            const isEast = Math.sin(azimuthRad) < 0;
+            if (isEast) return 270 + altDeg;
+            else return 90 - altDeg;
+        }
+
+        function updateLabelRotation(labelEl, angle) {
+            const normAngle = (angle % 360 + 360) % 360;
+            if (normAngle > 90 && normAngle < 270) {
+                labelEl.setAttribute("transform", "rotate(180, 0, -315)");
+            } else {
+                labelEl.setAttribute("transform", "");
+            }
+        }
+
+        let lastH, lastM, lastS;
+
+        function updateTheme(now, times) {
+            let theme = "";
+            if (now >= times.dawn && now < times.sunrise) theme = "theme-dawn";
+            else if (now >= times.sunrise && now < times.sunset) theme = "theme-day";
+            else if (now >= times.sunset && now < times.dusk) theme = "theme-dusk";
+
+            if (theme === "theme-day" || theme === "theme-dawn" || theme === "theme-dusk") {
+                if ((currentWeatherCode >= 51 && currentWeatherCode <= 67) || (currentWeatherCode >= 80 && currentWeatherCode <= 82)) theme = "theme-rain";
+                else if ((currentWeatherCode >= 71 && currentWeatherCode <= 77) || (currentWeatherCode >= 85 && currentWeatherCode <= 86)) theme = "theme-snow";
+                else if (currentWeatherCode === 3 || currentWeatherCode === 45 || currentWeatherCode === 48) theme = "theme-cloudy";
+            }
+
+            if (bodyEl.className !== theme) bodyEl.className = theme;
+        }
+
+        function update() {
+            const now = new Date();
+            const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds(), ms = now.getMilliseconds();
+
+            const sProg = (s + ms / 1000) / 60;
+            const mProg = (m + sProg) / 60;
+            const hProg = (h + mProg) / 24;
+
+            const hRot = (hProg * 360) + 90;
+            const mRot = (mProg * 360) + 90;
+            const sRot = (sProg * 360) + 90;
+
+            document.getElementById('plateHour').setAttribute("transform", `rotate(${hRot})`);
+            document.getElementById('plateMin').setAttribute("transform", `rotate(${mRot})`);
+            document.getElementById('plateSec').setAttribute("transform", `rotate(${sRot})`);
+
+            const sunPos = SunCalc.getPosition(now, currentLat, currentLon);
+            const moonPos = SunCalc.getMoonPosition(now, currentLat, currentLon);
+            const sunTimes = SunCalc.getTimes(now, currentLat, currentLon);
+
+            updateTheme(now, sunTimes);
+
+            const sunVisAngle = getVisualAngle(sunPos.altitude, sunPos.azimuth);
+            const moonVisAngle = getVisualAngle(moonPos.altitude, moonPos.azimuth);
+
+            sunMarker.setAttribute("transform", `rotate(${sunVisAngle})`);
+            moonMarker.setAttribute("transform", `rotate(${moonVisAngle})`);
+
+            updateLabelRotation(sunAltLabel, sunVisAngle);
+            updateLabelRotation(moonAltLabel, moonVisAngle);
+
+            const sAlt = formatAlt(sunPos.altitude * 180 / Math.PI);
+            const sAz = formatAz(sunPos.azimuth);
+            sunAltLabel.textContent = `Alt ${sAlt} / Az ${sAz}`;
+
+            const mAlt = formatAlt(moonPos.altitude * 180 / Math.PI);
+            const mAz = formatAz(moonPos.azimuth);
+            moonAltLabel.textContent = `Alt ${mAlt} / Az ${mAz}`;
+
+            if (h !== lastH) updateActive('hourNumbers', 24, h);
+            if (m !== lastM) updateActive('minNumbers', 60, m);
+            if (s !== lastS) updateActive('secNumbers', 60, s);
+
+            lastH = h; lastM = m; lastS = s;
+            requestAnimationFrame(update);
+        }
+
+        function updateActive(id, count, current) {
+            for (let i = 0; i < count; i++) {
+                const el = document.getElementById(`${id}-${i}`);
+                if (el) {
+                    if (i === current) el.classList.add('active-tick');
+                    else el.classList.remove('active-tick');
+                }
+            }
+        }
+
+        const geoBtn = document.getElementById('geo-btn');
+        geoBtn.addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                alert('この端末ではGPSがサポートされていません');
+                return;
+            }
+            geoBtn.textContent = "SYNCING...";
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    currentLat = pos.coords.latitude;
+                    currentLon = pos.coords.longitude;
+                    geoBtn.textContent = "GPS OK";
+                    geoBtn.style.borderColor = "var(--accent-color)";
+                    geoBtn.style.color = "var(--accent-color)";
+                    fetchWeather();
+                },
+                (err) => {
+                    geoBtn.textContent = "GPS ERR";
+                    alert('位置情報の取得に失敗しました: ' + err.message);
+                }
+            );
+        });
+
+        // Init
+        update();
+        fetchWeather();
+        setInterval(fetchWeather, 600000);
+
+    </script>
+</body>
+
+</html>
